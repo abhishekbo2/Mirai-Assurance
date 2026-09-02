@@ -1,0 +1,26 @@
+# Secrets and local environment configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Dependencies and generated application output
+**/node_modules/
+**/dist/
+**/coverage/
+**/playwright-report/
+**/test-results/
+
+# Runtime uploads, logs, and local databases
+backend/uploads/
+uploads/
+*.log
+*.sqlite
+*.sqlite3
+
+# Private keys and credential exports
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+credentials.json

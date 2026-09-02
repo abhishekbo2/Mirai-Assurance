@@ -1,0 +1,52 @@
+{
+  "realm": "mirai-assurance",
+  "enabled": true,
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "verifyEmail": true,
+  "loginTheme": "mirai",
+  "roles": {
+    "realm": [
+      { "name": "customer", "description": "Customer application access" },
+      { "name": "admin", "description": "Administrator application access" }
+    ]
+  },
+  "defaultRoles": ["customer"],
+  "clients": [
+    {
+      "clientId": "mirai-assurance-frontend",
+      "name": "Mirai Assurance Frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "rootUrl": "http://localhost:5173",
+      "baseUrl": "http://localhost:5173",
+      "redirectUris": ["http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:5173"],
+      "defaultClientScopes": ["profile", "email", "roles", "web-origins", "acr", "basic"],
+      "protocolMappers": [
+        {
+          "name": "mirai-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "mirai-assurance-frontend",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ]
+}
