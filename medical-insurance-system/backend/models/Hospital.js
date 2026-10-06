@@ -5,6 +5,7 @@ const hospitalSchema = new mongoose.Schema({
   city: { type: String, required: true },
   address: { type: String, required: true },
   isNetwork: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: true },
   location: {
     lat: { type: Number, required: true },
     lng: { type: Number, required: true }

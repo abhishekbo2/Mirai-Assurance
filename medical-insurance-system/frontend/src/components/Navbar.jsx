@@ -1,14 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { User } from "lucide-react";
 import logoImg from "../assets/logo.png";
 import ProfileSidebar from "./ProfileSidebar";
 import API from "../api";
-import { getUserRole, isAuthenticated } from "../auth/keycloak";
+import {
+  getUserRole,
+  isAuthenticated,
+  isOidcRegistrationFlowActive,
+} from "../auth/keycloak";
 
 const Navbar = () => {
+  const location = useLocation();
   const role = getUserRole();
   const authenticated = isAuthenticated();
+  const isAuthPage = location.pathname === "/login" || location.pathname === "/signin";
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
   const [profileAccessReady, setProfileAccessReady] = useState(false);
@@ -16,11 +22,11 @@ const Navbar = () => {
   const profileImageUrl = profileImage || null;
 
   useEffect(() => {
-    if (!authenticated) {
-      setProfileImage(null);
-      setProfileAccessReady(false);
-      return;
-    }
+    if (
+      !authenticated ||
+      isAuthPage ||
+      isOidcRegistrationFlowActive()
+    ) return;
 
     API.get("/auth/profile")
       .then((res) => {
@@ -31,7 +37,7 @@ const Navbar = () => {
         setProfileImage(null);
         setProfileAccessReady(false);
       });
-  }, [authenticated]);
+  }, [authenticated, isAuthPage, location.pathname]);
 
   const navLinkClass = ({ isActive }) =>
     `rounded-lg px-3 py-2 font-medium transition-all duration-200 ${
@@ -63,7 +69,7 @@ const Navbar = () => {
           </div>
 
           <div className="flex items-center space-x-6">
-            {authenticated && role === "customer" && (
+            {authenticated && !isAuthPage && role === "customer" && (
               <>
                 <NavLink to="/customer-dashboard" className={navLinkClass}>
                   Plans
@@ -80,7 +86,7 @@ const Navbar = () => {
               </>
             )}
 
-            {authenticated && role === "admin" && (
+            {authenticated && !isAuthPage && role === "admin" && (
               <>
                 <NavLink to="/admin-dashboard" className={navLinkClass}>
                   Control Panel
@@ -94,7 +100,7 @@ const Navbar = () => {
               </>
             )}
 
-            {profileAccessReady && (
+            {profileAccessReady && !isAuthPage && (
               <button
                 onClick={() => setIsProfileOpen(true)}
                 className="h-10 w-10 overflow-hidden rounded-full bg-white text-blue-500 shadow-md transition-all duration-200 hover:bg-blue-100 active:scale-95"

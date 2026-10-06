@@ -3,7 +3,9 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 const Claim = require('../models/Claim');
+const Hospital = require('../models/Hospital');
 const { protect } = require('../middleware/authMiddleware');
 const requireRole = require('../middleware/roleMiddleware');
 
@@ -25,9 +27,18 @@ const upload = multer({ storage });
 
 router.post('/file', protect, upload.single('bill'), async (req, res) => {
     try {
-        const { applicationId, amount, type } = req.body;
+        const { applicationId, amount, type, hospitalId } = req.body;
         
         if (!req.file) return res.status(400).json({ msg: "Please upload a bill" });
+
+        let hospital;
+        if (hospitalId) {
+            if (!mongoose.Types.ObjectId.isValid(hospitalId)) {
+                return res.status(400).json({ msg: "A valid hospital is required." });
+            }
+            hospital = await Hospital.findOne({ _id: hospitalId, isActive: { $ne: false } });
+            if (!hospital) return res.status(403).json({ msg: "This hospital is no longer available." });
+        }
 
         const normalizedPath = req.file.path.replace(/\\/g, '/');
 
@@ -37,7 +48,8 @@ router.post('/file', protect, upload.single('bill'), async (req, res) => {
             type: type || 'Cashless',
             amount: Number(amount),
             documents: [normalizedPath],
-            status: 'Pending'
+            status: 'Pending',
+            ...(hospital ? { hospital: hospital._id } : {}),
         });
 
         await newClaim.save();

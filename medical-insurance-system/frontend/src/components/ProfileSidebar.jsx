@@ -2,9 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { BarChart3, Camera, FileText, User, X } from "lucide-react";
 import API from "../api";
 import PaymentButton from "./PaymentButton";
-import { logout } from "../auth/keycloak";
+import RenewalPaymentButton from "./RenewalPaymentButton";
+import { formatDate, getRenewalAction } from "../pages/renewalUi";
+import { getLocalSession, linkOidcAccount, logout } from "../auth/keycloak";
 
-const SectionHeader = ({ icon, label, count, isOpen, onClick }) => (
+const SectionHeader = ({ icon, label, count, onClick }) => (
   <button
     onClick={onClick}
     className="flex w-full items-center justify-between rounded-xl bg-gray-100 p-3 font-semibold text-gray-800 transition hover:bg-gray-200"
@@ -21,6 +23,9 @@ const SectionHeader = ({ icon, label, count, isOpen, onClick }) => (
 
 const ProfileSidebar = ({ isOpen, onClose, onProfileImageChange }) => {
   const [profileData, setProfileData] = useState(null);
+  const [policies, setPolicies] = useState([]);
+  const [renewalStates, setRenewalStates] = useState({});
+  const [approvalRequests, setApprovalRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [openSections, setOpenSections] = useState({
@@ -29,14 +34,34 @@ const ProfileSidebar = ({ isOpen, onClose, onProfileImageChange }) => {
   });
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageError, setImageError] = useState("");
+  const [linkError, setLinkError] = useState("");
+  const [linking, setLinking] = useState(false);
   const imageInputRef = useRef(null);
 
   const fetchProfile = async () => {
     try {
       setLoading(true);
       setError("");
-      const response = await API.get("/auth/profile");
-      setProfileData(response.data);
+      const profileResponse = await API.get("/auth/profile");
+      setProfileData(profileResponse.data);
+      if (profileResponse.data.user.role !== "customer") return;
+
+      const [policyResponse, approvalResponse] = await Promise.all([
+        API.get("/policies"),
+        API.get("/renewal-approvals/my"),
+      ]);
+      const nextPolicies = policyResponse.data || [];
+      const stateEntries = await Promise.all(nextPolicies.map(async (policy) => {
+        try {
+          const stateResponse = await API.get(`/policies/${policy._id}/renewal-state`);
+          return [policy._id, stateResponse.data];
+        } catch {
+          return [policy._id, null];
+        }
+      }));
+      setPolicies(nextPolicies);
+      setRenewalStates(Object.fromEntries(stateEntries));
+      setApprovalRequests(approvalResponse.data || []);
     } catch (requestError) {
       setError(requestError.response?.data?.msg || "Failed to load profile.");
     } finally {
@@ -58,6 +83,21 @@ const ProfileSidebar = ({ isOpen, onClose, onProfileImageChange }) => {
   const handleLogout = () => {
     onClose();
     logout();
+  };
+
+  const handleLinkKeycloak = async () => {
+    try {
+      setLinking(true);
+      setLinkError("");
+      const localSession = getLocalSession();
+      const response = await API.post("/auth/link-oidc/start", null, {
+        headers: { "X-Local-Authorization": `Bearer ${localSession.token}` },
+      });
+      await linkOidcAccount(response.data.transactionId, "/customer-dashboard");
+    } catch (linkRequestError) {
+      setLinkError(linkRequestError.message || "Unable to start Keycloak linking.");
+      setLinking(false);
+    }
   };
 
   const handleImageUpload = async (event) => {
@@ -172,6 +212,22 @@ const ProfileSidebar = ({ isOpen, onClose, onProfileImageChange }) => {
               {imageError && (
                 <p className="-mt-4 mb-4 text-sm text-red-600">{imageError}</p>
               )}
+              {getLocalSession() && profileData.user.authProvider === "local" && (
+                <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <p className="font-semibold text-blue-800">Link Keycloak</p>
+                  <p className="mt-1 text-sm text-blue-700">
+                    Sign in to Keycloak to enable both login methods for this account.
+                  </p>
+                  <button
+                    onClick={handleLinkKeycloak}
+                    disabled={linking}
+                    className="mt-3 rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white disabled:opacity-60"
+                  >
+                    {linking ? "Opening Keycloak..." : "Link Keycloak account"}
+                  </button>
+                  {linkError && <p className="mt-2 text-sm text-red-600">{linkError}</p>}
+                </div>
+              )}
               {profileData.user.role === "customer" && (
                 <div className="space-y-4">
                   <div>
@@ -185,7 +241,19 @@ const ProfileSidebar = ({ isOpen, onClose, onProfileImageChange }) => {
                     {openSections.applications && (
                       <div className="mt-2 space-y-3">
                         {profileData.applications?.length ? (
-                          profileData.applications.map((app) => (
+                          profileData.applications.map((app) => {
+                            const policyId = app.policy?._id || app.policy;
+                            const policy = policies.find((item) => (
+                              String(item._id) === String(policyId) ||
+                              String(item.application) === String(app._id)
+                            ));
+                            const renewalState = policy && renewalStates[policy._id];
+                            const approvalRequest = approvalRequests.find((item) => (
+                              String(item.policy) === String(policy?._id)
+                            ));
+                            const renewalAction = getRenewalAction(renewalState, approvalRequest);
+
+                            return (
                             <article
                               key={app._id}
                               className="rounded-xl border border-blue-200 bg-blue-50 p-4"
@@ -197,6 +265,18 @@ const ProfileSidebar = ({ isOpen, onClose, onProfileImageChange }) => {
                                 Coverage: ₹
                                 {app.plan?.coverage?.toLocaleString("en-IN") ||
                                   "N/A"}
+                              <p className="mt-1 text-xs text-gray-500">
+                                Next renewal: {formatDate(policy?.nextRenewalDate)}
+                              </p>
+                              {renewalAction === "PAY_RENEWAL" && renewalState?.renewalId && (
+                                <div className="mt-3">
+                                  <RenewalPaymentButton
+                                    renewalId={renewalState.renewalId}
+                                    premium={policy?.purchasedTerms?.premium || app.plan?.premium || app.plan?.basePremium}
+                                    onComplete={fetchProfile}
+                                  />
+                                </div>
+                              )}
                               </p>
                               <p className="mt-1 text-xs text-gray-600">
                                 Premium: ₹
@@ -244,7 +324,8 @@ const ProfileSidebar = ({ isOpen, onClose, onProfileImageChange }) => {
                                 </p>
                               )}
                             </article>
-                          ))
+                            );
+                          })
                         ) : (
                           <p className="py-3 text-center text-sm text-gray-500">
                             No insurance plans yet.

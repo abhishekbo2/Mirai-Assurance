@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import API from "../api";
-import { loginWithOidc, saveLocalSession } from "../auth/keycloak";
+import { getOidcDashboardPath, isAuthenticated, loginWithOidc, saveLocalSession } from "../auth/keycloak";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -10,7 +10,15 @@ const Login = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const location = useLocation();
   const navigate = useNavigate();
+  const hasOidcConflict = new URLSearchParams(location.search).get("oidc_conflict") === "1";
+
+  useEffect(() => {
+    if (isAuthenticated() && !hasOidcConflict) {
+      navigate(getOidcDashboardPath(), { replace: true });
+    }
+  }, [hasOidcConflict, navigate]);
 
   const handleLocalLogin = async (event) => {
     event.preventDefault();
@@ -33,6 +41,12 @@ const Login = () => {
       <section className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl">
         <h1 className="text-center text-3xl font-black italic text-blue-800">Mirai Assurance</h1>
         <p className="mt-2 text-center text-gray-600">Sign in to your account</p>
+        {hasOidcConflict && (
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-semibold">Your Keycloak account is not linked yet.</p>
+            <p className="mt-1">Sign in to your existing Mirai account, then choose Link Keycloak Account from your profile.</p>
+          </div>
+        )}
         <form className="mt-8 space-y-4" onSubmit={handleLocalLogin}>
           <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" className="w-full rounded-xl border bg-gray-50 p-3" required />
           <div className="relative">
@@ -54,7 +68,7 @@ const Login = () => {
             </button>
           </div>
           <button type="submit" disabled={loading} className="w-full rounded-xl bg-blue-600 py-3 font-bold text-white transition hover:bg-blue-700 disabled:opacity-60">
-            {loading ? "Signing in..." : "Login"}
+            {loading ? "Signing in..." : hasOidcConflict ? "Sign in to existing account" : "Login"}
           </button>
         </form>
         {error && <p className="mt-3 text-center text-sm font-medium text-red-600">{error}</p>}

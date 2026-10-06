@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import API from "../api";
-import { loginWithOidc } from "../auth/keycloak";
+import { getOidcDashboardPath, isAuthenticated, registerWithOidc } from "../auth/keycloak";
 
 const SignIn = () => {
   const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "" });
@@ -11,6 +11,12 @@ const SignIn = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      navigate(getOidcDashboardPath(), { replace: true });
+    }
+  }, [navigate]);
 
   const updateField = (field) => (event) => setFormData((current) => ({ ...current, [field]: event.target.value }));
 
@@ -80,7 +86,7 @@ const SignIn = () => {
         </form>
         {error && <p className="mt-3 text-center text-sm font-medium text-red-600">{error}</p>}
         <div className="my-6 flex items-center gap-3 text-sm text-gray-500"><span className="h-px flex-1 bg-gray-200" />OR<span className="h-px flex-1 bg-gray-200" /></div>
-        <button type="button" onClick={() => loginWithOidc("/customer-dashboard", "/signin")} className="w-full rounded-xl border border-blue-600 py-3 font-bold text-blue-700 transition hover:bg-blue-50">Continue with Keycloak</button>
+        <button type="button" onClick={() => registerWithOidc("/customer-dashboard")} className="w-full rounded-xl border border-blue-600 py-3 font-bold text-blue-700 transition hover:bg-blue-50">Register with Keycloak</button>
         <p className="mt-6 text-center text-sm text-gray-600">Already registered? <Link to="/login" className="font-bold text-blue-600 hover:underline">Sign in</Link></p>
       </section>
     </main>

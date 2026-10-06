@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const claimSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   policy: { type: mongoose.Schema.Types.ObjectId, ref: 'Application', required: true },
+  insurancePolicy: { type: mongoose.Schema.Types.ObjectId, ref: 'Policy', default: null, index: true },
   type: { type: String, enum: ['Cashless', 'Reimbursement'], required: true },
   hospital: { type: mongoose.Schema.Types.ObjectId, ref: 'Hospital' },
   amount: { type: Number, required: true },

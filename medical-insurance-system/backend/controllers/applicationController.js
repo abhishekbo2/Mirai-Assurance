@@ -29,6 +29,9 @@ exports.applyForPlan = async (req, res) => {
 
     const plan = await InsurancePlan.findById(planId);
     if (!plan) return res.status(404).json({ msg: 'Insurance plan not found.' });
+    if (plan.isActive === false) {
+      return res.status(403).json({ msg: 'This plan is no longer available for new applications.' });
+    }
 
     if (applicantType === 'individual' && (age < plan.minEligibleAge || age > plan.maxEligibleAge)) {
       return res.status(400).json({ msg: `This plan is available only for ages ${plan.minEligibleAge}-${plan.maxEligibleAge}.` });

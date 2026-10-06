@@ -4,17 +4,48 @@ import API, { API_ORIGIN } from "../api";
 const AdminDashboard = () => {
   const [applications, setApplications] = useState([]);
   const [claims, setClaims] = useState([]);
+  const [customerDetails, setCustomerDetails] = useState(null);
+  const [customerDetailsLoading, setCustomerDetailsLoading] = useState(false);
+  const [customerDetailsError, setCustomerDetailsError] = useState("");
 
   // Fetch both Applications and Claims when the page loads
   useEffect(() => {
     API.get("/applications/admin/all")
       .then((res) => setApplications(res.data))
-      .catch((err) => console.error("Error fetching applications:", err));
+      .catch(() => console.error("Error fetching applications"));
 
     API.get("/claims/admin/all")
       .then((res) => setClaims(res.data))
-      .catch((err) => console.error("Error fetching claims:", err));
+      .catch(() => console.error("Error fetching claims"));
   }, []);
+
+  const openCustomerDetails = async (userId) => {
+    if (!userId) return;
+
+    setCustomerDetails(null);
+    setCustomerDetailsError("");
+    setCustomerDetailsLoading(true);
+    try {
+      const response = await API.get(`/admin/customers/${userId}`);
+      setCustomerDetails(response.data);
+    } catch (error) {
+      const status = error.response?.status;
+      setCustomerDetailsError(
+        status === 403
+          ? "You are not authorized to view customer details."
+          : status === 404
+            ? "Customer not found."
+            : "Unable to load customer details.",
+      );
+    } finally {
+      setCustomerDetailsLoading(false);
+    }
+  };
+
+  const closeCustomerDetails = () => {
+    setCustomerDetails(null);
+    setCustomerDetailsError("");
+  };
 
   // Update Application Status
   const updateStatus = async (id, newStatus) => {
@@ -25,7 +56,7 @@ const AdminDashboard = () => {
           app._id === id ? { ...app, status: newStatus } : app,
         ),
       );
-    } catch (err) {
+    } catch {
       alert("Failed to update status");
     }
   };
@@ -37,7 +68,7 @@ const AdminDashboard = () => {
       setClaims(
         claims.map((c) => (c._id === id ? { ...c, status: newStatus } : c)),
       );
-    } catch (err) {
+    } catch {
       alert("Failed to update claim status");
     }
   };
@@ -108,7 +139,15 @@ const AdminDashboard = () => {
                     key={app._id}
                     className="border-b hover:bg-blue-50/50 transition-colors"
                   >
-                    <td className="p-4 text-sm">{app.user?.name || "User"}</td>
+                    <td className="p-4 text-sm">
+                      <button
+                        type="button"
+                        onClick={() => openCustomerDetails(app.user?._id)}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {app.user?.name || "User"}
+                      </button>
+                    </td>
                     <td className="p-4 font-bold text-gray-700 text-sm">
                       {app.plan?.title}
                     </td>
@@ -217,7 +256,15 @@ const AdminDashboard = () => {
                       key={claim._id}
                       className="border-t hover:bg-red-50/50 transition-colors"
                     >
-                      <td className="p-4 text-sm">{claim.user?.name}</td>
+                      <td className="p-4 text-sm">
+                        <button
+                          type="button"
+                          onClick={() => openCustomerDetails(claim.user?._id)}
+                          className="text-blue-600 hover:underline"
+                        >
+                          {claim.user?.name || "User"}
+                        </button>
+                      </td>
                       <td className="p-4 font-black text-red-600 text-sm">
                         ₹{claim.amount}
                       </td>
@@ -265,6 +312,175 @@ const AdminDashboard = () => {
           </div>
         </div>
       </div>
+
+      {(customerDetailsLoading || customerDetailsError || customerDetails) && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+          <section className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b pb-4">
+              <div>
+                <h2 className="text-2xl font-black text-blue-900">Customer Details</h2>
+                {customerDetails?.customer && (
+                  <p className="mt-1 text-lg font-semibold text-gray-800">
+                    {customerDetails.customer.name}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={closeCustomerDetails}
+                className="text-sm font-bold text-gray-500 hover:text-gray-900"
+              >
+                Close
+              </button>
+            </div>
+
+            {customerDetailsLoading && (
+              <p className="py-10 text-center text-gray-500">Loading customer details...</p>
+            )}
+            {customerDetailsError && (
+              <p className="py-10 text-center font-semibold text-red-600">{customerDetailsError}</p>
+            )}
+            {customerDetails && (
+              <div className="mt-6 space-y-8">
+                <section>
+                  <h3 className="mb-3 text-lg font-bold text-blue-900">Profile</h3>
+                  <div className="grid gap-3 rounded-xl bg-blue-50 p-4 text-sm sm:grid-cols-2">
+                    <p><b>Name:</b> {customerDetails.customer.name}</p>
+                    <p><b>Email:</b> {customerDetails.customer.email}</p>
+                    <p><b>Role:</b> {customerDetails.customer.role}</p>
+                    <p><b>Provider:</b> {customerDetails.customer.authProvider}</p>
+                    <p><b>Profile image:</b> {customerDetails.customer.hasProfileImage ? "Available" : "Not provided"}</p>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="mb-3 text-lg font-bold text-blue-900">Applications</h3>
+                  {customerDetails.applications.length === 0 ? (
+                    <p className="text-sm text-gray-500">No applications found.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {customerDetails.applications.map((application) => (
+                        <article key={application.id} className="rounded-xl border p-4 text-sm">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <p><b>Plan:</b> {application.plan?.title || "—"}</p>
+                            <p><b>Status:</b> {application.status}</p>
+                            <p><b>Payment:</b> {application.paymentStatus}</p>
+                            <p><b>Applied:</b> {formatDateTime(application.appliedDate)}</p>
+                            <p><b>Paid:</b> {formatDateTime(application.paymentDate)}</p>
+                            <p><b>Applicant:</b> {application.applicantType}, {application.applicantAge || "age not provided"}</p>
+                          </div>
+                          <p className="mt-2"><b>Medical conditions:</b> {Object.entries(application.healthDeclaration || {}).filter(([, value]) => value).map(([key]) => key.replace(/([A-Z])/g, " $1")).join(", ") || "None declared"}</p>
+                          {application.medicalClearanceDocument && (
+                            <a href={`${API_ORIGIN}${application.medicalClearanceDocument}`} target="_blank" rel="noreferrer" className="mt-2 inline-block font-bold text-blue-600 underline">View clearance</a>
+                          )}
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section>
+                  <h3 className="mb-3 text-lg font-bold text-blue-900">Policies</h3>
+                  {customerDetails.policies?.length === 0 ? (
+                    <p className="text-sm text-gray-500">No policies found.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {customerDetails.policies?.map((policy) => (
+                        <article key={policy._id} className="rounded-xl border border-blue-100 p-4 text-sm">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <p><b>Policy:</b> {policy.policyNumber}</p>
+                            <p><b>Plan:</b> {policy.purchasedTerms?.title || policy.plan?.title || "—"}</p>
+                            <p><b>Status:</b> {policy.status}</p>
+                            <p><b>Premium:</b> ₹{Number(policy.initialPremium || policy.purchasedTerms?.premium || 0).toLocaleString("en-IN")}</p>
+                            <p><b>Current period:</b> {formatDateTime(policy.currentPeriodStart)} - {formatDateTime(policy.currentPeriodEnd)}</p>
+                            <p><b>Next renewal:</b> {formatDateTime(policy.nextRenewalDate)}</p>
+                            <p><b>Renewal count:</b> {policy.renewalCount || 0}</p>
+                            <p><b>Sequence:</b> {policy.renewalSequence || 0}</p>
+                            {policy.maturity && <p><b>Maturity:</b> {formatDateTime(policy.maturity.maturityDate)} / {formatDateTime(policy.maturity.maturedAt)}</p>}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section>
+                  <h3 className="mb-3 text-lg font-bold text-blue-900">Renewal History</h3>
+                  {customerDetails.renewals?.length === 0 ? (
+                    <p className="text-sm text-gray-500">No renewal records found.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {customerDetails.renewals?.map((renewal) => (
+                        <article key={renewal._id} className="rounded-xl border border-sky-100 p-4 text-sm">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <p><b>Policy:</b> {renewal.policy?.policyNumber || "—"}</p>
+                            <p><b>Sequence:</b> {renewal.sequence}</p>
+                            <p><b>Status:</b> {renewal.status}</p>
+                            <p><b>Premium:</b> ₹{Number(renewal.premiumAmount || 0).toLocaleString("en-IN")}</p>
+                            <p><b>Period:</b> {formatDateTime(renewal.periodStartDate)} - {formatDateTime(renewal.periodEndDate)}</p>
+                            <p><b>Payment:</b> {renewal.payment?.status || "No payment record"}</p>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section>
+                  <h3 className="mb-3 text-lg font-bold text-amber-900">Late-renewal Requests</h3>
+                  {customerDetails.lateRenewalRequests?.length === 0 ? (
+                    <p className="text-sm text-gray-500">No late-renewal requests found.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {customerDetails.lateRenewalRequests?.map((request) => (
+                        <article key={request._id} className="rounded-xl border border-amber-100 bg-amber-50/40 p-4 text-sm">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <p><b>Status:</b> {request.status}</p>
+                            <p><b>Sequence:</b> {request.sequence}</p>
+                            <p><b>Reason:</b> {request.reason || "—"}</p>
+                            <p><b>Submitted:</b> {formatDateTime(request.submittedAt)}</p>
+                            <p><b>Reviewed:</b> {formatDateTime(request.reviewedAt)}</p>
+                            <p><b>Payment deadline:</b> {formatDateTime(request.paymentDeadline)}</p>
+                            {request.rejectionReason && <p><b>Rejection:</b> {request.rejectionReason}</p>}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section>
+                  <h3 className="mb-3 text-lg font-bold text-red-900">Claims</h3>
+                  {customerDetails.claims.length === 0 ? (
+                    <p className="text-sm text-gray-500">No claims found.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {customerDetails.claims.map((claim) => (
+                        <article key={claim.id} className="rounded-xl border p-4 text-sm">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <p><b>Amount:</b> ₹{claim.amount}</p>
+                            <p><b>Status:</b> {claim.status}</p>
+                            <p><b>Type:</b> {claim.type}</p>
+                            <p><b>Hospital:</b> {claim.hospital?.name || "—"}</p>
+                            <p><b>Policy status:</b> {claim.policy?.status || "—"}</p>
+                            <p><b>Policy payment:</b> {claim.policy?.paymentStatus || "—"}</p>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-3">
+                            {claim.documents?.map((document) => (
+                              <a key={document} href={`${API_ORIGIN}/${document.replace(/\\/g, "/")}`} target="_blank" rel="noreferrer" className="font-bold text-blue-600 underline">View claim document</a>
+                            ))}
+                            {!claim.documents?.length && <span className="text-gray-500">No documents</span>}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,4 +1,5 @@
-const { protect } = require('../../middleware/authMiddleware');
+const User = require('../../models/User');
+const { findOrProvisionOidcUser, protect } = require('../../middleware/authMiddleware');
 const requireRole = require('../../middleware/roleMiddleware');
 
 const createResponse = () => ({
@@ -9,6 +10,32 @@ const createResponse = () => ({
 });
 
 describe('OIDC authorization middleware', () => {
+  it('signals explicit linking when a verified OIDC email belongs to a local account', async () => {
+    const localAccountQuery = {
+      select: jasmine.createSpy('select').and.returnValue(Promise.resolve({ password: 'hash' })),
+    };
+    spyOn(User, 'findOne').and.returnValues(
+      Promise.resolve(null),
+      Promise.resolve(null),
+      localAccountQuery,
+    );
+
+    let error;
+    try {
+      await findOrProvisionOidcUser(
+        { sub: 'keycloak-subject', email: 'local@example.com', email_verified: true },
+        'customer',
+        'http://issuer.example/realm',
+      );
+    } catch (caughtError) {
+      error = caughtError;
+    }
+
+    expect(error.code).toBe('OIDC_ACCOUNT_LINK_REQUIRED');
+    expect(error.statusCode).toBe(409);
+    expect(User.findOne).toHaveBeenCalledTimes(3);
+  });
+
   it('rejects a request without a Bearer access token', async () => {
     const response = createResponse();
     const request = { header: () => undefined };

@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const applicationSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   plan: { type: mongoose.Schema.Types.ObjectId, ref: 'InsurancePlan', required: true},
+  policy: { type: mongoose.Schema.Types.ObjectId, ref: 'Policy', default: null, index: true },
   status: { type: String, enum: ['pending', 'active', 'default', 'Pending Admin Approval', 'approved', 'rejected'], default: 'Pending Admin Approval' },
   paymentStatus: { type: String, enum: ['unpaid', 'paid'], default: 'unpaid' },
   appliedDate: { type: Date, default: Date.now },

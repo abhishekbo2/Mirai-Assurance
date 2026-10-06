@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
     default: 'local',
   },
   oidcSubject: { type: String, unique: true, sparse: true },
+  oidcIssuer: { type: String, sparse: true },
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, select: false },
@@ -15,6 +16,9 @@ const userSchema = new mongoose.Schema({
     contentType: { type: String, default: null }
   }
 });
+
+userSchema.index({ oidcIssuer: 1, oidcSubject: 1 }, { unique: true, sparse: true });
+
 module.exports = mongoose.model('User', userSchema);
 
 

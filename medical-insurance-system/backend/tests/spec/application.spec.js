@@ -49,6 +49,16 @@ describe('Application Controller Unit Tests', () => {
         }));
     });
 
+    it('should reject applications for an inactive plan', async () => {
+        req.body = { planId: 'inactive_plan', applicantAge: 30, healthDeclaration: { diabetes: false } };
+        spyOn(InsurancePlan, 'findById').and.returnValue(Promise.resolve({ isActive: false }));
+
+        await applicationController.applyForPlan(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json).toHaveBeenCalledWith({ msg: 'This plan is no longer available for new applications.' });
+    });
+
     it('should successfully fetch all applications for the logged-in user', async () => {
         const mockApps = [
             { id: '1', plan: { title: 'Health Basic' } },

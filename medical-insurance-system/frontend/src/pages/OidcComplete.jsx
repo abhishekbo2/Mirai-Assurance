@@ -1,45 +1,74 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   clearOidcEntryPath,
+  clearFailedOidcAuthentication,
   consumeOidcRegistrationIntent,
   getUserRole,
   isAuthenticated,
+  isOidcAuthenticated,
   loginWithOidc,
   requireLoginAfterOidcRegistration,
+  getOidcAccessToken,
 } from "../auth/keycloak";
+import API from "../api";
 
 const OidcComplete = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const requestedDestination = new URLSearchParams(location.search).get("next");
-  const isRestartingAfterRegistration = useRef(false);
+  const linkTransactionId = new URLSearchParams(location.search).get("link_tx");
   const destination = requestedDestination?.startsWith("/")
     ? requestedDestination
     : "/customer-dashboard";
 
   useEffect(() => {
+    if (consumeOidcRegistrationIntent()) {
+      requireLoginAfterOidcRegistration(destination, linkTransactionId).catch(() => {
+        navigate("/login", { replace: true });
+      });
+      return;
+    }
+
     if (isAuthenticated()) {
-      if (consumeOidcRegistrationIntent()) {
-        isRestartingAfterRegistration.current = true;
-        requireLoginAfterOidcRegistration(destination).catch(() => {
-          navigate("/login", { replace: true });
-        });
+      if (linkTransactionId) {
+        getOidcAccessToken()
+          .then((oidcToken) => {
+            if (!oidcToken) throw new Error("A verified Keycloak session is required.");
+            return API.post("/auth/link-oidc", { transactionId: linkTransactionId }, {
+              headers: { Authorization: `Bearer ${oidcToken}` },
+            });
+          })
+          .then(() => {
+            navigate(destination, { replace: true });
+          })
+          .catch(() => {
+            navigate("/login", { replace: true });
+          });
         return;
       }
-
-      if (isRestartingAfterRegistration.current) return;
 
       const role = getUserRole();
       clearOidcEntryPath();
 
-      if (role === "admin") {
-        navigate("/admin-dashboard", { replace: true });
-        return;
-      }
+      if (role === "admin" || role === "customer") {
+        const nextPath = role === "admin" ? "/admin-dashboard" : destination;
 
-      if (role === "customer") {
-        navigate(destination, { replace: true });
+        if (isOidcAuthenticated()) {
+          API.get("/auth/profile")
+            .then(() => navigate(nextPath, { replace: true }))
+            .catch((requestError) => {
+              if (requestError.response?.data?.code === "OIDC_ACCOUNT_LINK_REQUIRED") {
+                clearFailedOidcAuthentication();
+                navigate("/login?oidc_conflict=1", { replace: true });
+                return;
+              }
+
+              navigate("/login", { replace: true });
+            });
+        } else {
+          navigate(nextPath, { replace: true });
+        }
         return;
       }
 
@@ -48,15 +77,9 @@ const OidcComplete = () => {
     }
 
     loginWithOidc(destination);
-  }, [destination, navigate]);
+  }, [destination, linkTransactionId, navigate]);
 
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-blue-100 p-4">
-      <p className="rounded-xl bg-white px-6 py-4 text-center text-gray-700 shadow-lg">
-        Completing secure sign in…
-      </p>
-    </main>
-  );
+  return null;
 };
 
 export default OidcComplete;

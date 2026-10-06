@@ -23,7 +23,7 @@ OIDC must remain an optional button; it must not remove or replace local registr
 - Local session token/role are stored in `sessionStorage`, not `localStorage`.
 - Axios interceptor (`frontend/src/api.js`) sends Keycloak access token when available; otherwise sends local JWT.
 - `Login.jsx` shows local email/password form plus **Continue with Identity Provider**.
-- `SignIn.jsx` shows local registration form plus **Register with Identity Provider**.
+- `SignIn.jsx` shows local registration form plus **Register with Identity Provider**, using Keycloak's explicit registration action.
 - `OidcComplete.jsx` is the OIDC callback route. It receives the authorization response, lets Keycloak JS process it, then routes customer to the requested safe path or admin to `/admin-dashboard`.
 - `ProtectedRoute.jsx` uses the session state and role returned by `keycloak.js`.
 
@@ -43,17 +43,26 @@ OIDC must remain an optional button; it must not remove or replace local registr
 ```text
 authProvider: local | oidc | hybrid
 oidcSubject: Keycloak stable subject ID
+oidcIssuer: OIDC issuer associated with the subject
 password: optional bcrypt hash for local capability
 ```
 
 OIDC mapping rules:
 
-1. Look up user by `oidcSubject` first.
-2. If absent, look up by verified email.
-3. If matching email has no different OIDC subject, link it.
-4. A local account with a password becomes `hybrid`; local password login keeps working.
-5. If no matching email exists, create `oidc` user.
-6. If email is already linked to a different subject, reject to prevent account takeover.
+1. Look up the user by `(oidcIssuer, oidcSubject)`.
+2. Upgrade a legacy OIDC record without `oidcIssuer` when its subject matches the configured issuer.
+3. Do not link an existing local account by email alone; explicit account linking is required.
+4. If no matching OIDC identity exists, create an `oidc` user.
+5. If the email belongs to an unlinked application account, reject the OIDC login.
+
+Linking an already authenticated local account uses a separate short-lived transaction:
+
+1. `POST /auth/link-oidc/start` requires the local JWT in `X-Local-Authorization` and stores only a hash of a random 32-byte transaction ID, its expiry, and the local user ID in `LinkingTransaction`.
+2. The frontend passes only the opaque transaction ID as `link_tx` in the Keycloak callback URL. It never puts the local JWT in a URL or browser storage for this flow.
+3. After registration, email verification, and a fresh Keycloak Authorization Code + PKCE login, `OidcComplete.jsx` sends the transaction ID and Keycloak access token to `POST /auth/link-oidc`.
+4. The backend verifies the Keycloak token with the existing JWKS verifier, atomically consumes the pending transaction, and links the verified issuer and subject to the transaction's local user. Email equality is never used to link accounts.
+
+The transaction is valid for ten minutes and can be consumed once. Because the local user is resolved server-side, the completion works in the original tab or in a new tab opened by the verification email. After linking, the user remains `hybrid`; the local password and normal local/OIDC authentication paths remain available.
 
 ## Keycloak local configuration
 
@@ -109,7 +118,7 @@ Keycloak—not the Express `emailService.js`—sends OIDC verification mail.
 - Keycloak realm email settings need their own SMTP host/from/authentication values.
 - Gmail should use `smtp.gmail.com`, port `587`, STARTTLS, a valid sender address, and a Google App Password.
 - Do not add this app password to project code, `.env.example`, or Git.
-- On successful verification, Keycloak returns to `http://localhost:5173/oidc-complete?next=/customer-dashboard` and completes Authorization Code + PKCE. Verification link alone must not be treated as an application login.
+- The temporary post-verification callback is treated only as a registration restart. It cannot provision the application user. A fresh credential login completes Authorization Code + PKCE at `/oidc-complete`.
 
 ## Roles
 
@@ -157,12 +166,12 @@ Then Keycloak Admin Console → `mirai-assurance` → **Realm settings → Theme
 ## OIDC test checklist
 
 - Local customer register, local login, wrong password, local token expiration, local admin authorization.
-- OIDC registration, email verification, automatic callback to `/oidc-complete`, customer dashboard, profile sidebar.
+- OIDC registration, email verification, credential login, `/oidc-complete`, customer dashboard, profile sidebar.
 - OIDC cancellation using the theme `×` button.
 - Invalid/expired/wrong-audience Keycloak token receives 401.
 - OIDC token without customer/admin receives 403.
 - Customer receives 403 on admin endpoints; admin succeeds.
-- Local user and OIDC user with same verified email becomes a single `hybrid` MongoDB user.
+- Local and OIDC users with the same email remain separate until an explicit account-linking flow is completed.
 
 ## Do not do these things
 

@@ -1,0 +1,32 @@
+{
+  "manifest_version": "0.2",
+  "name": "mirai-api-mcp",
+  "display_name": "Mirai Assurance API MCP",
+  "version": "1.0.0",
+  "description": "MCP server for accessing Mirai Assurance through its REST APIs.",
+  "author": {
+    "name": "Abhishek B O"
+  },
+  "user_config": {
+    "admin_token": {
+      "type": "string",
+      "title": "Mirai Admin JWT Token",
+      "description": "Admin JWT token used to access protected Mirai Assurance APIs.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server.js"
+      ],
+      "env": {
+        "MIRAI_ADMIN_TOKEN": "${user_config.admin_token}"
+      }
+    }
+  }
+}

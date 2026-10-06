@@ -27,6 +27,7 @@ const setRequestUser = (req, user, authenticationMethod) => {
   req.user = {
     id: user._id.toString(),
     oidcSubject: user.oidcSubject || null,
+    oidcIssuer: user.oidcIssuer || null,
     email: user.email,
     role: user.role,
     authenticationMethod,
@@ -50,46 +51,7 @@ const authenticateLocalToken = async (token, req) => {
   }
 };
 
-const findOrProvisionOidcUser = async (payload, role) => {
-  const email = payload.email?.trim().toLowerCase();
-  const name = payload.name || payload.preferred_username || email;
-
-  if (!payload.sub || !email || payload.email_verified !== true) {
-    throw new Error('OIDC token is missing a verified email address or subject.');
-  }
-
-  let user = await User.findOne({ oidcSubject: payload.sub });
-  if (user) {
-    user.name = name;
-    user.role = role;
-    await user.save();
-    return user;
-  }
-
-  user = await User.findOne({ email }).select('+password');
-  if (user) {
-    if (user.oidcSubject && user.oidcSubject !== payload.sub) {
-      throw new Error('This email is already linked to a different OIDC identity.');
-    }
-
-    user.oidcSubject = payload.sub;
-    user.authProvider = user.password ? 'hybrid' : 'oidc';
-    user.name = name;
-    user.role = role;
-    await user.save();
-    return user;
-  }
-
-  return User.create({
-    authProvider: 'oidc',
-    oidcSubject: payload.sub,
-    name,
-    email,
-    role,
-  });
-};
-
-const authenticateOidcToken = async (token, req) => {
+const verifyOidcAccessToken = async (token) => {
   const { audience, issuer, jwtVerify } = await getOidcConfiguration();
   const { payload } = await jwtVerify(token, remoteJwks, { audience, issuer });
   const role = getTrustedOidcRole(payload);
@@ -100,8 +62,77 @@ const authenticateOidcToken = async (token, req) => {
     throw error;
   }
 
-  const user = await findOrProvisionOidcUser(payload, role);
+  if (!payload.sub || !payload.email || payload.email_verified !== true) {
+    throw new Error('OIDC token is missing a verified email address or subject.');
+  }
+
+  return { payload, role, issuer };
+};
+
+const findOrProvisionOidcUser = async (payload, role, issuer) => {
+  const email = payload.email?.trim().toLowerCase();
+  const name = payload.name || payload.preferred_username || email;
+
+  if (!payload.sub || !email || payload.email_verified !== true) {
+    throw new Error('OIDC token is missing a verified email address or subject.');
+  }
+
+  let user = await User.findOne({ oidcIssuer: issuer, oidcSubject: payload.sub });
+  if (!user) {
+    user = await User.findOne({
+      oidcSubject: payload.sub,
+      $or: [{ oidcIssuer: { $exists: false } }, { oidcIssuer: null }],
+    });
+  }
+
+  if (user) {
+    user.oidcIssuer = issuer;
+    user.name = name;
+    user.role = role;
+    await user.save();
+    return user;
+  }
+
+  user = await User.findOne({ email }).select('+password');
+  if (user) {
+    const error = new Error('An account with this email already exists. Please sign in to your existing Mirai account to link your Keycloak account.');
+    error.code = 'OIDC_ACCOUNT_LINK_REQUIRED';
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return User.create({
+    authProvider: 'oidc',
+    oidcSubject: payload.sub,
+    oidcIssuer: issuer,
+    name,
+    email,
+    role,
+  });
+};
+
+const authenticateOidcToken = async (token, req) => {
+  const { payload, role, issuer } = await verifyOidcAccessToken(token);
+
+  const user = await findOrProvisionOidcUser(payload, role, issuer);
   setRequestUser(req, user, 'oidc');
+};
+
+exports.authenticateLocalToken = authenticateLocalToken;
+exports.verifyOidcAccessToken = verifyOidcAccessToken;
+exports.findOrProvisionOidcUser = findOrProvisionOidcUser;
+
+exports.protectLocal = async (req, res, next) => {
+  const authorization = req.header('X-Local-Authorization');
+  const token = authorization?.startsWith('Bearer ')
+    ? authorization.slice(7)
+    : null;
+
+  if (!token || !(await authenticateLocalToken(token, req))) {
+    return res.status(401).json({ msg: 'A valid local session is required.' });
+  }
+
+  next();
 };
 
 exports.protect = async (req, res, next) => {
@@ -121,8 +152,10 @@ exports.protect = async (req, res, next) => {
     console.error('Authentication rejected:', error.code || error.name, error.message);
     const isConfigurationError = error.message?.startsWith('OIDC is not configured');
     const missingRole = error.message === 'A required Keycloak role is missing.';
+    const accountLinkRequired = error.code === 'OIDC_ACCOUNT_LINK_REQUIRED';
     res.status(isConfigurationError ? 503 : error.statusCode || 401).json({
-      msg: isConfigurationError || missingRole
+      code: error.code,
+      msg: isConfigurationError || missingRole || accountLinkRequired
         ? error.message
         : 'Invalid or expired authentication token.',
     });

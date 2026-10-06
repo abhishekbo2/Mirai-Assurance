@@ -11,7 +11,7 @@ The login and registration pages show both options. Local tokens are kept only i
 
 Every protected Express endpoint expects `Authorization: Bearer <access-token>`. The backend verifies the token signature using Keycloak's JWKS, and also validates the issuer, audience, and expiration. It reads only Keycloak realm roles (`customer` and `admin`) for authorization.
 
-The MongoDB `User` record contains `authProvider` (`local`, `oidc`, or `hybrid`) and is linked to Keycloak using the immutable `sub` claim in `oidcSubject`. If a verified Keycloak email matches an existing local user, it becomes a `hybrid` account instead of creating a duplicate. The local password remains usable.
+The MongoDB `User` record contains `authProvider` (`local`, `oidc`, or `hybrid`) and is linked to Keycloak using the immutable `sub` claim together with the verified token issuer. A verified email alone does not link an OIDC identity to an existing local account; explicit account linking is required. Existing local passwords remain usable.
 
 ## Local start
 
@@ -19,7 +19,7 @@ The MongoDB `User` record contains `authProvider` (`local`, `oidc`, or `hybrid`)
 2. Run `docker compose --env-file .env up -d` from the `keycloak` folder.
 3. Copy the OIDC values in `backend/.env.example` into `backend/.env` and the Keycloak values in `frontend/.env.example` into `frontend/.env`.
 4. Start MongoDB, then start the backend and frontend as usual.
-5. Open the app and select **Create account**. Keycloak hosts the registration screen; verified users receive the `customer` realm role by default.
+5. Open the app and select **Create account**. Keycloak hosts the registration screen through its explicit registration action; verified users receive the `customer` realm role by default.
 
 ## Admin access
 
@@ -42,7 +42,7 @@ Use **Test connection** and **Test authentication** before trying registration a
 
 The current Keycloak log confirms the cause of failed delivery: `No sender address configured in the realm settings for emails`.
 
-After verification, Keycloak returns to `/oidc-complete`. That page completes the Authorization Code + PKCE flow and routes an authenticated user to their dashboard. This is safer than treating an email verification link as an application login by itself. If a user cancels an identity-provider screen, they can use the browser Back button to return to the Mirai login or registration page; doing so cancels the in-progress OIDC authorization request.
+After verification, the temporary registration session is not treated as application authentication. A fresh Keycloak credential login is required; only that login completes Authorization Code + PKCE at `/oidc-complete` and permits backend provisioning. If a user cancels an identity-provider screen, they can use the browser Back button to return to the Mirai login or registration page; doing so cancels the in-progress OIDC authorization request.
 
 ## OIDC cancel button
 
@@ -72,4 +72,4 @@ Then in Keycloak Admin Console, choose the `mirai-assurance` realm, open **Realm
 - A token with another issuer, an invalid signature, wrong audience, or expired `exp` returns `401`.
 - A valid token without `customer` or `admin` returns `403`.
 - Customer tokens receive `403` on administrative routes.
-- The first valid request creates or links the MongoDB user using `oidcSubject`.
+- The first valid request after credential login creates or finds the MongoDB user using `(oidcIssuer, oidcSubject)`.

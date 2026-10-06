@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Edit3, Plus, X } from "lucide-react";
+import { Edit3, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import API from "../api";
 
 const createEmptyPlan = () => ({
@@ -143,7 +143,7 @@ const AddPlan = () => {
 
   const fetchPlans = async () => {
     try {
-      const response = await API.get("/plans");
+      const response = await API.get("/plans/admin/all");
       setPlans(response.data);
     } catch {
       setMessage("Unable to load plans.");
@@ -202,6 +202,19 @@ const AddPlan = () => {
     setMessage("");
   };
 
+  const setPlanActive = async (plan) => {
+    const nextState = !plan.isActive;
+    if (!nextState && !window.confirm("Are you sure you want to remove this plan? Existing customer applications will not be affected, but new applications will no longer be allowed.")) return;
+
+    try {
+      await API.patch(`/plans/${plan._id}/status`, { isActive: nextState });
+      setMessage(nextState ? "PLAN RESTORED SUCCESSFULLY!" : "PLAN REMOVED FROM AVAILABILITY!");
+      fetchPlans();
+    } catch (err) {
+      setMessage(err.response?.data?.message || "UNABLE TO UPDATE PLAN STATUS.");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-blue-100 p-4">
       <div className="mx-auto mt-10 w-full max-w-2xl rounded-3xl bg-white p-8 shadow-xl">
@@ -229,7 +242,7 @@ const AddPlan = () => {
       </div>
 
       <div className="mx-auto w-full max-w-2xl pb-10 pt-8">
-        <h3 className="mb-4 text-xl font-black text-blue-900">Active Plans</h3>
+        <h3 className="mb-4 text-xl font-black text-blue-900">Plan Management</h3>
         <div className="space-y-4">
           {plans.map((plan) => (
             <article
@@ -244,13 +257,25 @@ const AddPlan = () => {
                   {plan.category} · Age {plan.minEligibleAge ?? 18}-
                   {plan.maxEligibleAge ?? 65} · Premium: ₹{plan.premium}
                 </p>
+                <span className={`mt-2 inline-block rounded-lg px-2 py-1 text-[10px] font-black uppercase ${plan.isActive ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                  {plan.isActive ? "Active" : "Removed"}
+                </span>
               </div>
-              <button
-                onClick={() => beginEdit(plan)}
-                className="flex shrink-0 items-center gap-2 rounded-xl bg-blue-100 px-3 py-2 text-xs font-black uppercase text-blue-800 transition hover:bg-blue-200"
-              >
-                <Edit3 size={15} /> Edit
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  onClick={() => beginEdit(plan)}
+                  className="flex items-center gap-2 rounded-xl bg-blue-100 px-3 py-2 text-xs font-black uppercase text-blue-800 transition hover:bg-blue-200"
+                >
+                  <Edit3 size={15} /> Edit
+                </button>
+                <button
+                  onClick={() => setPlanActive(plan)}
+                  className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black uppercase transition ${plan.isActive ? "bg-red-100 text-red-700 hover:bg-red-200" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
+                >
+                  {plan.isActive ? <Trash2 size={15} /> : <RotateCcw size={15} />}
+                  {plan.isActive ? "Remove" : "Restore"}
+                </button>
+              </div>
             </article>
           ))}
         </div>

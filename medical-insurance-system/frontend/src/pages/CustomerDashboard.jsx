@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Check, Menu, Search, SlidersHorizontal, X } from "lucide-react";
 import API from "../api";
 import PaymentButton from "../components/PaymentButton";
+import RenewalPaymentButton from "../components/RenewalPaymentButton";
+import { formatDate, getRenewalAction } from "./renewalUi";
 
 const CONDITIONS = [
   ["diabetes", "Diabetes"],
@@ -209,6 +211,8 @@ function PlanFilterDrawer({
 const CustomerDashboard = () => {
   const [plans, setPlans] = useState([]);
   const [applications, setApplications] = useState([]);
+  const [policies, setPolicies] = useState([]);
+  const [renewalStates, setRenewalStates] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [draftFilters, setDraftFilters] = useState(EMPTY_FILTERS);
@@ -225,12 +229,24 @@ const CustomerDashboard = () => {
 
   const loadData = async () => {
     try {
-      const [planResponse, applicationResponse] = await Promise.all([
+      const [planResponse, applicationResponse, policyResponse] = await Promise.all([
         API.get("/plans"),
         API.get("/applications/my-policies"),
+        API.get("/policies"),
       ]);
       setPlans(planResponse.data);
       setApplications(applicationResponse.data);
+      const nextPolicies = policyResponse.data || [];
+      const stateEntries = await Promise.all(nextPolicies.map(async (policy) => {
+        try {
+          const response = await API.get(`/policies/${policy._id}/renewal-state`);
+          return [policy._id, response.data];
+        } catch {
+          return [policy._id, null];
+        }
+      }));
+      setPolicies(nextPolicies);
+      setRenewalStates(Object.fromEntries(stateEntries));
     } catch {
       setError("Unable to load plans. Please refresh and try again.");
     }
@@ -250,6 +266,10 @@ const CustomerDashboard = () => {
       (app) =>
         app.plan?._id === selectedPlan._id || app.plan === selectedPlan._id,
     );
+  const selectedPolicy = selectedApplication?.policy
+    ? policies.find((policy) => String(policy._id) === String(selectedApplication.policy))
+    : policies.find((policy) => String(policy.application) === String(selectedApplication?._id));
+  const selectedRenewalState = selectedPolicy && renewalStates[selectedPolicy._id];
 
   const filteredPlans = useMemo(
     () =>
@@ -329,9 +349,18 @@ const CustomerDashboard = () => {
       );
     if (selectedApplication.paymentStatus === "paid")
       return (
-        <p className="rounded-xl bg-green-50 p-3 text-center font-bold text-green-700">
-          This policy premium has already been paid.
-        </p>
+        <div className="space-y-3 rounded-xl bg-green-50 p-4 text-sm text-green-800">
+          <p><b>Premium purchased on:</b> {formatDate(selectedApplication.paymentDate)}</p>
+          <p><b>Recent renewal:</b> {selectedPolicy?.renewalSequence > 0 ? formatDate(selectedPolicy.currentPeriodStart) : "Not renewed yet"}</p>
+          <p><b>Next renewal:</b> {formatDate(selectedPolicy?.nextRenewalDate)}</p>
+          {getRenewalAction(selectedRenewalState) === "PAY_RENEWAL" && selectedRenewalState?.renewalId && (
+            <RenewalPaymentButton
+              renewalId={selectedRenewalState.renewalId}
+              premium={selectedPolicy?.purchasedTerms?.premium || selectedPlan.premium || selectedPlan.basePremium}
+              onComplete={loadData}
+            />
+          )}
+        </div>
       );
     if (selectedApplication.status === "approved")
       return (

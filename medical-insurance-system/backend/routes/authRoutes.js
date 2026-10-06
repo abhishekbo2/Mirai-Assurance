@@ -6,8 +6,10 @@ const {
   login,
   register,
   uploadProfileImage,
+  startOidcLink,
+  linkOidcAccount,
 } = require('../controllers/authController.js');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, protectLocal } = require('../middleware/authMiddleware');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -17,6 +19,8 @@ const upload = multer({
 
 router.post('/register', register);
 router.post('/login', login);
+router.post('/link-oidc/start', protectLocal, startOidcLink);
+router.post('/link-oidc', linkOidcAccount);
 router.get('/profile', protect, getProfile);
 router.post('/profile/image', protect, upload.single('profileImage'), uploadProfileImage);
 

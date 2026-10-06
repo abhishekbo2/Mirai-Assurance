@@ -1,6 +1,5 @@
 (() => {
   const entryCookieName = "miraiOidcEntry";
-  const registrationCookieName = "miraiOidcRegistration";
   const allowedPaths = new Set(["/login", "/signin"]);
   const fallbackUrl = "http://localhost:5173/login";
 
@@ -28,20 +27,7 @@
   const returnToMirai = () => {
     // Leaving Keycloak abandons the pending authorization transaction. No token
     // has been issued to Mirai Assurance at this point.
-    document.cookie = `${registrationCookieName}=; Path=/; Max-Age=0; SameSite=Lax`;
     window.location.assign(getEntryUrl());
-  };
-
-  const markRegistrationIntent = () => {
-    const secureAttribute = window.location.protocol === "https:" ? "; Secure" : "";
-    document.cookie = `${registrationCookieName}=1; Path=/; SameSite=Lax${secureAttribute}`;
-  };
-
-  const watchForRegistrationNavigation = () => {
-    document.querySelectorAll("a[href]").forEach((link) => {
-      const isRegistrationLink = /registration/i.test(link.href) || /register/i.test(link.textContent);
-      if (isRegistrationLink) link.addEventListener("click", markRegistrationIntent, { once: true });
-    });
   };
 
   const addCancelButton = () => {
@@ -70,11 +56,10 @@
     ].join(";");
     button.addEventListener("click", returnToMirai);
     document.body.appendChild(button);
-    watchForRegistrationNavigation();
   };
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", addCancelButton);
+    document.addEventListener("DOMContentLoaded", addCancelButton, { once: true });
   } else {
     addCancelButton();
   }

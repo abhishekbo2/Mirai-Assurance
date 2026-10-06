@@ -1,32 +1,19 @@
 const cron = require('node-cron');
-const Application = require('../models/Application');
-const sendEmail = require('./emailService');
+const Renewal = require('../models/Renewal');
+const notificationService = require('../services/policyNotificationService');
 
-cron.schedule('* * * * *', async () => {
-    console.log("Checking for policy renewals...");
-    
+const runRenewalScheduler = async (now = new Date(), emailSender) => {
     try {
-        const oneYearAgo = new Date();
-        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-        const expiringPolicies = await Application.find({
-            paymentStatus: 'paid',
-            status: 'approved',
-            paymentDate: { $lte: oneYearAgo } 
-        }).populate('user');
-
-        for (const policy of expiringPolicies) {
-            const message = `Hello ${policy.user.name}, your insurance policy for ${policy.plan} has reached its 1-year mark. Please log in to Mirai Assurance to renew your premium.`;
-            
-            await sendEmail({
-                email: policy.user.email,
-                subject: 'Insurance Renewal Reminder',
-                message: message
-            });
-            
-            console.log(`Reminder sent to: ${policy.user.email}`);
+        const renewals = await Renewal.find({});
+        for (const renewal of renewals) {
+            await notificationService.processLifecycleNotifications(renewal, now);
         }
+        await notificationService.processPendingNotifications(emailSender);
     } catch (err) {
-        console.error("Cron Job Error:", err);
+        console.error('Renewal notification scheduler error:', err);
     }
-});
+};
+
+cron.schedule('* * * * *', runRenewalScheduler);
+
+module.exports = { runRenewalScheduler };

@@ -20,8 +20,13 @@ const keycloak = new Keycloak({
 
 const OIDC_RETURN_PATH_KEY = "oidcReturnPath";
 const OIDC_ENTRY_COOKIE = "miraiOidcEntry";
-const OIDC_REGISTRATION_COOKIE = "miraiOidcRegistration";
 const PROJECT_AUTH_PATHS = new Set(["/login", "/signin"]);
+let oidcRegistrationFlowActive = false;
+let registrationReauthentication = null;
+
+const hasOidcRegistrationCallback = () =>
+  window.location.pathname === "/oidc-complete" &&
+  new URLSearchParams(window.location.search).get("oidc_flow") === "registration";
 
 export const initializeAuthentication = async () => {
   if (missingConfiguration.length) {
@@ -29,6 +34,8 @@ export const initializeAuthentication = async () => {
       `Missing Keycloak configuration: ${missingConfiguration.join(", ")}`,
     );
   }
+
+  oidcRegistrationFlowActive = hasOidcRegistrationCallback();
 
   await keycloak.init({
     onLoad: "check-sso",
@@ -77,6 +84,8 @@ export const isAuthenticated = () => Boolean(keycloak.authenticated) || Boolean(
 
 export const isOidcAuthenticated = () => Boolean(keycloak.authenticated);
 
+export const isOidcRegistrationFlowActive = () => oidcRegistrationFlowActive;
+
 export const getUserRole = () => {
   if (keycloak.hasRealmRole("admin")) return "admin";
   if (keycloak.hasRealmRole("customer")) return "customer";
@@ -92,8 +101,10 @@ export const consumeOidcReturnPath = () => {
   return path?.startsWith("/") ? path : null;
 };
 
-const getOidcReturnUrl = (destination) => {
+const getOidcReturnUrl = (destination, linkTransactionId, registrationFlow = false) => {
   const params = new URLSearchParams({ next: destination });
+  if (linkTransactionId) params.set("link_tx", linkTransactionId);
+  if (registrationFlow) params.set("oidc_flow", "registration");
   return `${window.location.origin}/oidc-complete?${params.toString()}`;
 };
 
@@ -112,14 +123,14 @@ export const clearOidcEntryPath = () => {
   document.cookie = `${OIDC_ENTRY_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 };
 
-export const consumeOidcRegistrationIntent = () => {
-  const cookie = document.cookie
-    .split("; ")
-    .find((item) => item.startsWith(`${OIDC_REGISTRATION_COOKIE}=`));
-
-  document.cookie = `${OIDC_REGISTRATION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
-  return cookie?.split("=")[1] === "1";
+export const clearFailedOidcAuthentication = () => {
+  keycloak.clearToken();
+  sessionStorage.removeItem(OIDC_RETURN_PATH_KEY);
+  clearOidcEntryPath();
 };
+
+export const consumeOidcRegistrationIntent = () =>
+  hasOidcRegistrationCallback();
 
 export const loginWithOidc = async (
   destination = "/customer-dashboard",
@@ -132,14 +143,43 @@ export const loginWithOidc = async (
   });
 };
 
-export const requireLoginAfterOidcRegistration = async (destination) => {
+export const registerWithOidc = async (destination = "/customer-dashboard", linkTransactionId = null) => {
+  rememberOidcEntryPath("/signin");
+  sessionStorage.setItem(OIDC_RETURN_PATH_KEY, destination);
+  const registrationUrl = await keycloak.createRegisterUrl({
+    redirectUri: getOidcReturnUrl(destination, linkTransactionId, true),
+  });
+  window.location.assign(registrationUrl);
+};
+
+export const linkOidcAccount = async (transactionId, destination = "/customer-dashboard") => {
+  if (!transactionId) throw new Error("A linking transaction is required.");
+  await registerWithOidc(destination, transactionId);
+};
+
+export const requireLoginAfterOidcRegistration = async (destination, linkTransactionId = null) => {
+  const callbackUrl = window.location.href;
+  if (registrationReauthentication?.callbackUrl === callbackUrl) {
+    return registrationReauthentication.promise;
+  }
+
   sessionStorage.setItem(OIDC_RETURN_PATH_KEY, destination);
   clearOidcEntryPath();
 
-  // Registration and email verification can create a temporary Keycloak SSO
-  // session. End that session through Keycloak, then return to the OIDC
-  // callback so it starts a genuine credential-login request.
-  await keycloak.logout({ redirectUri: getOidcReturnUrl(destination) });
+  // Force credentials after registration instead of reusing the temporary
+  // Keycloak SSO session created during registration or email verification.
+  const loginPromise = Promise.resolve().then(() => keycloak.login({
+    redirectUri: getOidcReturnUrl(destination, linkTransactionId),
+    prompt: "login",
+  }));
+  const guardedLoginPromise = loginPromise.finally(() => {
+    if (registrationReauthentication?.promise === guardedLoginPromise) {
+      registrationReauthentication = null;
+    }
+  });
+  registrationReauthentication = { callbackUrl, promise: guardedLoginPromise };
+
+  return guardedLoginPromise;
 };
 
 export const logout = async () => {
@@ -147,7 +187,6 @@ export const logout = async () => {
   sessionStorage.removeItem('localRole');
   sessionStorage.removeItem(OIDC_RETURN_PATH_KEY);
   clearOidcEntryPath();
-  document.cookie = `${OIDC_REGISTRATION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 
   if (keycloak.authenticated) {
     await keycloak.logout({ redirectUri: window.location.origin });

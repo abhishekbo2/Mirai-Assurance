@@ -16,6 +16,8 @@ app.use(express.json());
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/plans', require('./routes/planRoutes'));
 app.use('/api/applications', require('./routes/applicationRoutes'));
+app.use('/api/policies', require('./routes/policyRoutes'));
+app.use('/api/renewal-approvals', require('./routes/renewalApprovalRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/hospitals', require('./routes/hospitalRoutes'));
 app.use('/api/claims', require('./routes/claimRoutes'));
